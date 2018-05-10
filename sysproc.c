@@ -6,11 +6,36 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "vm.h"
+
+
+int
+sys_num_pages(void)
+{
+  return myproc()->sz / 4096;
+}
+
+int
+sys_virt2real(void)
+{
+  char * ptr;
+  argptr(0, &ptr, sizeof(char *));
+  pde_t* pgdir = myproc()->pgdir;
+  // argptr(0, &va, sizeof(char*));
+  ptr = (char *)walkpgdir(pgdir, ptr, 0);
+  return 0;
+}
 
 int
 sys_fork(void)
 {
   return fork();
+}
+
+int
+sys_forkcow(void)
+{
+  return forkcow();
 }
 
 int

@@ -343,6 +343,55 @@ bad:
   return 0;
 }
 
+// Gabriel: copied just so it would compile
+struct run {
+  struct run *next;
+  int references; // Gabriel: used to count references to page
+};
+
+// Gabriel: Should return a reference to parent page,
+// changing the page to read only and setting it as a COW PAGE
+pde_t*
+copyuvmcow(pde_t *pgdir, uint sz)
+{
+  pde_t *d;
+  pte_t *pte;
+  uint pa, i, flags;
+  // char *mem;
+  struct run * page_struct;
+
+  if((d = setupkvm()) == 0)
+    return 0;
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+      panic("copyuvm: pte should exist");
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+
+    // Gabriel: should sets pte to read only
+    *pte &= ~PTE_W;
+    // Gabriel: should sets pte as a COW page
+    *pte |= PTE_COW;
+
+    pa = PTE_ADDR(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    // Gabriel: probably wont work, should count a new refrence to the page
+    page_struct = (struct run*)V2P(pa);
+    page_struct->references++;
+    // Gabriel: should copy adress to child
+    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
+      goto bad;
+  }
+  lcr3(V2P(pgdir));
+  return d;
+
+bad:
+  freevm(d);
+  lcr3(V2P(pgdir));
+  return 0;
+}
+
 //PAGEBREAK!
 // Map user virtual address to kernel address.
 char*
@@ -390,4 +439,3 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 // Blank page.
 //PAGEBREAK!
 // Blank page.
-

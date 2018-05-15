@@ -15,6 +15,7 @@ extern char end[]; // first address after kernel loaded from ELF file
 
 struct run {
   struct run *next;
+  int references; // Gabriel: used to count references to page
 };
 
 struct {
@@ -91,6 +92,6 @@ kalloc(void)
     kmem.freelist = r->next;
   if(kmem.use_lock)
     release(&kmem.lock);
+  r->references = 1; // Gabriel: page number of references should start with 1
   return (char*)r;
 }
-

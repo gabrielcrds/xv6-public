@@ -15,13 +15,13 @@ extern char end[]; // first address after kernel loaded from ELF file
 
 struct run {
   struct run *next;
-  int references; // Gabriel: used to count references to page
 };
 
 struct {
   struct spinlock lock;
   int use_lock;
   struct run *freelist;
+  uint num_references[PHYSTOP >> PGSHIFT];
 } kmem;
 
 // Initialization happens in two phases.
@@ -49,8 +49,11 @@ freerange(void *vstart, void *vend)
 {
   char *p;
   p = (char*)PGROUNDUP((uint)vstart);
-  for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)vend; p += PGSIZE){
     kfree(p);
+    kmem.num_references[V2P(p) >> PGSHIFT] = 0;
+  }
+
 }
 //PAGEBREAK: 21
 // Free the page of physical memory pointed at by v,
@@ -92,6 +95,32 @@ kalloc(void)
     kmem.freelist = r->next;
   if(kmem.use_lock)
     release(&kmem.lock);
-  r->references = 1; // Gabriel: page number of references should start with 1
+  kmem.num_references[V2P((char*)r) >> PGSHIFT] = 1;
   return (char*)r;
+}
+
+
+void
+update_references(uint addr, int val){
+
+  if(kmem.use_lock)
+    acquire(&kmem.lock);
+
+  kmem.num_references[addr >> PGSHIFT] += val;  
+
+  if(kmem.use_lock)
+    release(&kmem.lock);
+}
+
+int get_num_references(uint addr){
+  uint n;
+  if(kmem.use_lock)
+    acquire(&kmem.lock);
+
+  n = kmem.num_references[addr >> PGSHIFT];  
+
+  if(kmem.use_lock)
+    release(&kmem.lock);
+
+  return n;
 }

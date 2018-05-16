@@ -343,11 +343,6 @@ bad:
   return 0;
 }
 
-// Gabriel: copied just so it would compile
-struct run {
-  struct run *next;
-  int references; // Gabriel: used to count references to page
-};
 
 // Gabriel: Should return a reference to parent page,
 // changing the page to read only and setting it as a COW PAGE
@@ -357,8 +352,6 @@ copyuvmcow(pde_t *pgdir, uint sz)
   pde_t *d;
   pte_t *pte;
   uint pa, i, flags;
-  // char *mem;
-  struct run * page_struct;
 
   if((d = setupkvm()) == 0)
     return 0;
@@ -376,9 +369,7 @@ copyuvmcow(pde_t *pgdir, uint sz)
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
 
-    // Gabriel: probably wont work, should count a new refrence to the page
-    page_struct = (struct run*)V2P(pa);
-    page_struct->references++;
+    update_references(pa, 1);
     // Gabriel: should copy adress to child
     if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
       goto bad;
@@ -431,6 +422,51 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     va = va0 + PGSIZE;
   }
   return 0;
+}
+
+void
+pagefault(uint errCode) {
+  struct proc * current_proc = myproc();
+  uint va = rcr2(), pa, flags;
+  pte_t * pte = walkpgdir(current_proc->pgdir, (void *)va, 0);
+  char * mem;
+  cprintf("Pagefault ocurred!\n");
+  
+  pa = PTE_ADDR(*pte);
+  int n_ref = get_num_references(pa);
+
+  cprintf("#ref %d\n", n_ref);
+
+  if(errCode & 0x2){
+    cprintf("Tried to write on a pag with no permission\n");
+    if(*pte & PTE_COW){
+      cprintf("COW PAGE!\n");
+      if(n_ref > 1){
+        if((mem = kalloc()) == 0)
+          goto bad;
+        
+        flags = PTE_FLAGS(*pte);
+        flags |= PTE_W;
+        memmove(mem, (char*)P2V(pa), PGSIZE);
+        if(mappages(current_proc->pgdir, (void *)va, PGSIZE, V2P(mem), flags) < 0)
+          goto bad;
+
+        update_references(pa, -1); 
+      }
+      else{
+        *pte |= PTE_W;
+      }
+    }
+    
+  }
+
+  lcr3(V2P(current_proc->pgdir));
+  return;
+
+bad:
+  freevm(current_proc->pgdir);
+  current_proc->killed = 1;
+  return;
 }
 
 //PAGEBREAK!

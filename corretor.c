@@ -48,6 +48,7 @@ int caso2forkcow(void) {
  printf(stdout, "[--Caso 2.1] Testando %d chamadas forkcow\n", N);
 
  for(n=0; n<N; n++){
+   printf(stdout, "\n\nFork -------- %d\n\n", n);
    pid = forkcow();
    if(pid < 0) {
      printf(stdout, "[--Caso 2.1 - ERROR] Fork %d falhou!\n", n);

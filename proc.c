@@ -231,8 +231,6 @@ forkcow(void)
   struct proc *np;
   struct proc *curproc = myproc();
   
-  cprintf("CALLED FORK COW!!!\n\n\"");
-
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;

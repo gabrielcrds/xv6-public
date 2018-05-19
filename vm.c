@@ -353,8 +353,6 @@ copyuvmcow(pde_t *pgdir, uint sz)
   pte_t *pte;
   uint pa, i, flags;
 
-  cprintf("CALLING COPYUVMCOW\n\n");
-
   if((d = setupkvm()) == 0)
     return 0;
   for(i = 0; i < sz; i += PGSIZE){
@@ -363,20 +361,18 @@ copyuvmcow(pde_t *pgdir, uint sz)
     if(!(*pte & PTE_P))
       panic("copyuvm: page not present");
 
-    // Gabriel: should sets pte to read only
-    *pte &= ~PTE_W;
-    // Gabriel: should sets pte as a COW page
-    *pte |= PTE_COW;
+    if(*pte & PTE_W) {
+      *pte &= ~PTE_W;
+      *pte |= PTE_COW;
+    }
     
     pa = PTE_ADDR(*pte);
     flags = PTE_FLAGS(*pte);
 
-    // Gabriel: should copy adress to child
     if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
       goto bad;
 
     update_references(pa, 1);
-    cprintf("Finished loop %d\n", i);
   }
   lcr3(V2P(pgdir));
   return d;
@@ -431,48 +427,47 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 void
 pagefault(uint errCode) {
   struct proc * current_proc = myproc();
-  cprintf("PAGE FAULT !!!\n");
+  
   uint va = rcr2(), pa;
   pte_t * pte = walkpgdir(current_proc->pgdir, (void *)va, 0);
   char * mem;
-  cprintf("errcode %d\n", errCode);
+
+  pa = PTE_ADDR(*pte);
+  
   if(va >= KERNBASE ||  pte == 0 || !(*pte & PTE_P) || !(*pte & PTE_U)) {
     cprintf("Deu ruim!\n");
-    cprintf("va %d kerbase %d condition: %d\n", va, KERNBASE, va >= KERNBASE ? 1 : 0);
+    cprintf("va %x pte %x kerbase %d condition: %d\n", va, *pte, KERNBASE, va >= KERNBASE ? 1 : 0);
     cprintf("ERRO PTE_P %d\n", !(*pte & PTE_P) ? 1 : 0);
     cprintf("ERRO PTE_U %d\n", !(*pte & PTE_U) ? 1 : 0);
-    current_proc->killed = 1;
-    return;
+    goto bad;
   }
-  if(errCode & 0x2 && *pte & PTE_COW){
-    cprintf("COW\n");
-    pa = PTE_ADDR(*pte);
 
-    int n_ref = get_num_references(pa);
-    cprintf("N REFS: %d", n_ref);
-    if(n_ref > 1){
-      if((mem = kalloc()) == 0)
-        goto bad;    
+  if(errCode & 0x2) {
+    if(!(*pte & PTE_W) && (*pte & PTE_COW)){
 
-      memmove(mem, (char*)P2V(pa), PGSIZE);
-      *pte = V2P(mem) | PTE_P | PTE_U | PTE_W;
+      int n_ref = get_num_references(pa);
+      if(n_ref > 1){
+        if((mem = kalloc()) == 0)
+          goto bad;    
 
-      update_references(pa, -1); 
-    } else if(n_ref == 1){
-      *pte |= PTE_W;
-      *pte &= ~PTE_COW;
+        memmove(mem, (char*)P2V(pa), PGSIZE);
+        *pte = V2P(mem) | PTE_P | PTE_U | PTE_W;
+
+        update_references(pa, -1); 
+      } else if(n_ref == 1) {
+        *pte |= PTE_W;
+        *pte &= ~PTE_COW;
+      } 
     } else {
-      panic("batata");
-    } 
-  } else {
-    cprintf("Not a cow sorry");
+      cprintf("Not a cow sorry");
+    }
   }
   
-  cprintf("\n\n");
-  lcr3(lcr3(V2P(current_proc->pgdir)));
+  lcr3(V2P(current_proc->pgdir));
   return;
 
 bad:
+  update_references(pa, -1); 
   current_proc->killed = 1;
   return;
 }

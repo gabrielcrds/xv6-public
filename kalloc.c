@@ -68,16 +68,23 @@ kfree(char *v)
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(v, 1, PGSIZE);
-
   if(kmem.use_lock)
     acquire(&kmem.lock);
-  r = (struct run*)v;
-  r->next = kmem.freelist;
-  kmem.freelist = r;
+
+  if(kmem.num_references[V2P(v) >> PGSHIFT] > 0)
+    kmem.num_references[V2P(v) >> PGSHIFT] --;
+  
+  if(kmem.num_references[V2P(v) >> PGSHIFT] == 0){
+      // Fill with junk to catch dangling refs.
+    memset(v, 1, PGSIZE);
+
+    r = (struct run*)v;
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
+  
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -93,9 +100,10 @@ kalloc(void)
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
+  kmem.num_references[V2P((char*)r) >> PGSHIFT] = 1;
   if(kmem.use_lock)
     release(&kmem.lock);
-  kmem.num_references[V2P((char*)r) >> PGSHIFT] = 1;
+  
   return (char*)r;
 }
 
@@ -105,9 +113,9 @@ update_references(uint addr, int val){
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
-
+  
   kmem.num_references[addr >> PGSHIFT] += val;  
-
+  
   if(kmem.use_lock)
     release(&kmem.lock);
 }
